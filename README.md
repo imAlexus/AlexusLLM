@@ -49,7 +49,7 @@ incolla nel notebook:
 ```bash
 python gen_sample.py              # conversazione IT+EN
 python gen_reasoning.py >> data/sample.txt   # aggiunge esempi di ragionamento
-python train.py --data data/sample.txt --epochs 5
+python train.py --bpe --data data/sample.txt --epochs 5 --dim 384 --n_layers 8
 ```
 
 Il formato e sempre:
