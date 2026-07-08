@@ -1,0 +1,8 @@
+device: cuda
+corpus chars: 134,175
+merge 0: te (count=1440)
+merge 200: re (count=75)
+merge 400: re (count=75)
+merge 600: re (count=75)
+merge 800: re (count=75)
+vocab size: 259

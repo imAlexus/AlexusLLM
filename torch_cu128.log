@@ -1,0 +1,5 @@
+
+[notice] A new release of pip is available: 24.0 -> 26.1.2
+[notice] To update, run: python.exe -m pip install --upgrade pip
+DONE cu128
+VER 2.11.0+cu128 CUDA True

@@ -15,7 +15,9 @@ Autore: imAlexus
 - `data.py` — helper per caricare il corpus conversazionale.
 - `train.py` — loop di training minimale (CPU in minuti, GPU Colab in secondi).
 - `chat.py` — chat interattiva sul checkpoint allenato.
-- `gen_sample.py` — genera un piccolo dataset IT+EN di esempio.
+- `gen_sample.py` — genera un piccolo dataset IT+EN di esempio (conversazione).
+- `gen_reasoning.py` — genera esempi di **chain-of-thought** (ragionamento a
+  passi) da appendere al corpus per insegnare al modello a ragionare.
 - `colab/AlexusLLM_Train.ipynb` — notebook pronto da aprire in Colab.
 
 ## Avvio rapido (locale)
@@ -42,7 +44,21 @@ incolla nel notebook:
 
 > Per usare la GPU gratuita di Colab: Runtime -> Change runtime type -> GPU.
 
-## Scala il modello
+## Dataset: conversazione + ragionamento
+
+```bash
+python gen_sample.py              # conversazione IT+EN
+python gen_reasoning.py >> data/sample.txt   # aggiunge esempi di ragionamento
+python train.py --data data/sample.txt --epochs 5
+```
+
+Il formato e sempre:
+
+    USER: <testo>
+    ASSISTANT: <risposta, eventualmente con Passo 1 / Passo 2 ...>
+
+Il modello impara cosi a scomporre i problemi (reasoning) e non solo a
+completare pattern.
 
 Parametri in `train.py`: `--dim`, `--n_layers`, `--n_heads`, `--vocab_size`,
 `--block_size`, `--batch_size`. Un modello davvero capace richiede dataset

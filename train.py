@@ -11,7 +11,7 @@ import argparse
 import math
 import torch
 from model import TransformerLM
-from tokenizer import Tokenizer
+from tokenizer import Tokenizer, CharTokenizer
 from data import load_corpus, build_dataset, get_batch
 
 
@@ -29,23 +29,31 @@ def main():
     ap.add_argument("--max_steps", type=int, default=2000)
     ap.add_argument("--save", default="checkpoints/model.pt")
     ap.add_argument("--device", default="auto")
+    ap.add_argument("--bpe", action="store_true",
+                    help="use BPE tokenizer (slower to train, better quality) instead of char-level")
     args = ap.parse_args()
 
     device = args.device
     if device == "auto":
         device = "cuda" if torch.cuda.is_available() else "cpu"
-    print(f"device: {device}")
+    print(f"device: {device}", flush=True)
 
     text = load_corpus(args.data)
-    print(f"corpus chars: {len(text):,}")
+    print(f"corpus chars: {len(text):,}", flush=True)
 
-    tok = Tokenizer()
-    tok.train(text, vocab_size=args.vocab_size, verbose=True)
-    print(f"vocab size: {tok.vocab_size}")
+    if args.bpe:
+        tok = Tokenizer()
+        tok.train(text, vocab_size=args.vocab_size, min_freq=2, verbose=True)
+    else:
+        tok = CharTokenizer()
+        tok.train(text, verbose=True)
+    print(f"vocab size: {tok.vocab_size}", flush=True)
+    import os
+    os.makedirs("checkpoints", exist_ok=True)
     tok.save("checkpoints/tokenizer.json")
-
+    print("tokenizer saved, encoding corpus...", flush=True)
     data = build_dataset(text, tok, args.block_size)
-    print(f"tokens: {len(data):,}")
+    print(f"tokens: {len(data):,}", flush=True)
 
     model = TransformerLM(
         vocab_size=tok.vocab_size,
@@ -72,14 +80,14 @@ def main():
             opt.step()
             step += 1
             if step % 50 == 0:
-                print(f"step {step} | epoch {epoch} | loss {loss.item():.4f}")
+                print(f"step {step} | epoch {epoch} | loss {loss.item():.4f}", flush=True)
             if step >= args.max_steps:
                 break
         torch.save({"model": model.state_dict(), "vocab_size": tok.vocab_size,
                     "dim": args.dim, "n_layers": args.n_layers,
                     "n_heads": args.n_heads, "block_size": args.block_size},
                    args.save)
-        print(f"checkpoint saved -> {args.save}")
+        print(f"checkpoint saved -> {args.save}", flush=True)
 
 
 if __name__ == "__main__":

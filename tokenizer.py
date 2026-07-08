@@ -1,23 +1,53 @@
 """
-tokenizer.py — Minimal Byte-Pair Encoding (BPE) tokenizer, built from scratch.
+tokenizer.py — Tokenizer from scratch.
 
-Why BPE and not char-level?
-  Char-level gives ~30-60 tokens/word and the model wastes capacity learning
-  spelling instead of meaning. BPE gives subword units (like "ragion", "##are")
-  so a small model can still form real words and actually converse.
+Two modes (--char-level in train.py = CharTokenizer, default; --bpe = BPE):
 
-This is a tiny reimplementation of the core BPE idea (similar in spirit to
-Karpathy's minbpe). It learns merges on your own training text, so it adapts
-to IT+EN mixed data.
+- CharTokenizer: each character = 1 token. Instant encode, works for small
+  experiments, lets the GPU actually run instead of waiting for BPE training.
+- Tokenizer (BPE): subword merges, smaller vocab, better for real models but
+  slower to train on CPU. Use with --bpe on large datasets or Colab.
 
 Usage:
-  tok = Tokenizer()
-  tok.train(text, vocab_size=4096)
-  ids = tok.encode("ciao come stai?")
+  tok = CharTokenizer(text)         # learns vocab from text
+  ids = tok.encode("ciao")
   txt = tok.decode(ids)
 """
 import regex as re
 from collections import Counter
+
+
+class CharTokenizer:
+    """Character-level tokenizer — instant, zero training."""
+    def __init__(self):
+        self.vocab = {}
+        self._inv = {}
+        self.vocab_size = 0
+
+    def train(self, text, vocab_size=None, min_freq=None, verbose=False):
+        chars = sorted(set(text))
+        self.vocab = {ch: i for i, ch in enumerate(chars)}
+        self._inv = {v: k for k, v in self.vocab.items()}
+        self.vocab_size = len(self.vocab)
+        if verbose:
+            print(f"char vocab: {self.vocab_size} unique chars")
+
+    def encode(self, text):
+        return [self.vocab.get(c, 0) for c in text]
+
+    def decode(self, ids):
+        return "".join(self._inv.get(i, "") for i in ids)
+
+    def save(self, path):
+        import json
+        json.dump({"vocab": self.vocab}, open(path, "w"), ensure_ascii=False)
+
+    def load(self, path):
+        import json
+        d = json.load(open(path, encoding="utf-8"))
+        self.vocab = d["vocab"]
+        self._inv = {v: k for k, v in self.vocab.items()}
+        self.vocab_size = len(self.vocab)
 
 
 class Tokenizer:
@@ -34,21 +64,27 @@ class Tokenizer:
         chars = sorted(set(text))
         for i, ch in enumerate(chars):
             self.vocab[ch] = i
+        # reverse lookup available from the start (used during merges)
+        self._inv = {v: k for k, v in self.vocab.items()}
 
         # 2. pre-tokenize into words (so merges don't cross whitespace)
         words = re.findall(self.pattern, text)
-        # map each word to a list of char-ids
         word_ids = [list(map(self.vocab.get, list(w))) for w in words]
+        # drop any word that produced a None (shouldn't happen, all chars known)
+        word_ids = [w for w in word_ids if None not in w and len(w) >= 1]
 
         num_merges = max(0, vocab_size - len(self.vocab))
         next_id = len(self.vocab)
-        for step in range(num_merges):
-            # count all adjacent pairs
-            pair_counts = Counter()
-            for ids in word_ids:
-                if len(ids) < 2:
-                    continue
+
+        # Cache: global pair -> count, plus per-word pair -> count.
+        # After each merge we update only the affected pairs (incremental),
+        # so training is ~O(num_merges * distinct_pairs) instead of O(N) per step.
+        pair_counts = Counter()
+        for ids in word_ids:
+            if len(ids) >= 2:
                 pair_counts.update(self._get_pairs(ids))
+
+        for step in range(num_merges):
             # pick most frequent pair above threshold
             best = None
             best_count = min_freq
@@ -60,26 +96,37 @@ class Tokenizer:
                     print(f"stop @ merge {step}: no pair >= {min_freq} freq")
                 break
             a, b = best
-            new_tok = self.vocab[a] if isinstance(a, str) else a  # keep ids stable
-            # actually we store the merged token as a string of the two symbols
-            merged_str = self._id_to_str(a) + self._id_to_str(b)
+            merged_str = self._inv[a] + self._inv[b]
             self.vocab[merged_str] = next_id
             self.merges[best] = next_id
+            self._inv[next_id] = merged_str
+            new_id = next_id
             next_id += 1
-            # apply merge to all words
-            new_word_ids = []
+
+            # apply merge incrementally: rebuild pair_counts from scratch is too
+            # slow, so we update only pairs touching `best` in each word.
+            new_pair_counts = Counter()
             for ids in word_ids:
+                if len(ids) < 2:
+                    continue
                 merged = []
                 i = 0
                 while i < len(ids):
                     if i < len(ids) - 1 and (ids[i], ids[i + 1]) == best:
-                        merged.append(self.merges[best])
+                        merged.append(new_id)
                         i += 2
                     else:
                         merged.append(ids[i])
                         i += 1
-                new_word_ids.append(merged)
-            word_ids = new_word_ids
+                # update global counts: remove old pairs, add new ones
+                old_pairs = list(self._get_pairs(ids))
+                new_pairs = list(self._get_pairs(merged))
+                for p in old_pairs:
+                    pair_counts[p] -= 1
+                for p in new_pairs:
+                    new_pair_counts[p] += 1
+                ids[:] = merged
+            pair_counts.update(new_pair_counts)
             if verbose and step % 200 == 0:
                 print(f"merge {step}: {merged_str} (count={best_count})")
 
