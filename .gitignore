@@ -2,3 +2,7 @@ checkpoints/
 __pycache__/
 *.pyc
 .ipynb_checkpoints/
+mini_test.txt
+tok_test.log
+train_log*.txt
+torch_cu*.log
